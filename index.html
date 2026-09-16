@@ -332,9 +332,27 @@
       font: inherit;
     }
     .field input:focus, .field textarea:focus { border-color: var(--purple); box-shadow: 0 0 0 3px rgba(80, 52, 200, .11); }
+    .field input[aria-invalid="true"], .field textarea[aria-invalid="true"] { border-color: #b42318; box-shadow: 0 0 0 3px rgba(180, 35, 24, .1); }
     .field textarea { min-height: 82px; resize: vertical; }
+    .field-error { min-height: 1.15em; margin: 0; color: #b42318; font-size: .76rem; font-weight: 750; }
+    .checkout-note { margin: 0; color: var(--muted); font-size: .78rem; }
     .submit-order { width: 100%; margin-top: 4px; color: var(--white); background: var(--purple); }
     .submit-order:disabled { cursor: not-allowed; opacity: .48; transform: none; }
+
+    .order-success { display: none; }
+    .order-success.visible { display: block; }
+    .success-mark { display: grid; width: 64px; height: 64px; margin-bottom: 18px; place-items: center; color: var(--purple-dark); background: var(--lime); border-radius: 50%; font-size: 1.8rem; font-weight: 950; }
+    .order-success h2 { font-size: 1.8rem; }
+    .order-success > p { margin: 8px 0 20px; color: var(--muted); }
+    .order-code { margin-bottom: 18px; padding: 14px 16px; color: var(--purple-dark); background: #efecfb; border-radius: 12px; }
+    .order-code span { display: block; font-size: .75rem; font-weight: 750; text-transform: uppercase; }
+    .order-code strong { font-size: 1.2rem; letter-spacing: .04em; }
+    .confirmed-items { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+    .confirmed-item { display: flex; justify-content: space-between; gap: 20px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+    .confirmed-item span:last-child { flex: none; font-weight: 850; }
+    .confirmed-total { display: flex; justify-content: space-between; margin: 18px 0 22px; font-size: 1.05rem; }
+    .confirmed-total strong { color: var(--purple); font-size: 1.3rem; }
+    .new-order { width: 100%; color: var(--white); background: var(--purple); }
 
     .toast {
       position: fixed;
@@ -516,14 +534,25 @@
       </div>
       <div id="cart-items" class="cart-items"></div>
       <div class="cart-summary"><span>Tổng tiền</span><strong id="cart-total">0đ</strong></div>
-      <form class="checkout-form" id="checkout-form">
+      <form class="checkout-form" id="checkout-form" novalidate>
         <h3>Thông tin nhận hàng</h3>
-        <div class="field"><label for="customer-name">Họ tên *</label><input id="customer-name" name="name" type="text" autocomplete="name" required></div>
-        <div class="field"><label for="customer-phone">Số điện thoại *</label><input id="customer-phone" name="phone" type="tel" inputmode="tel" autocomplete="tel" pattern="[0-9 +.-]{8,15}" required></div>
-        <div class="field"><label for="customer-address">Địa chỉ giao hàng *</label><textarea id="customer-address" name="address" autocomplete="street-address" required></textarea></div>
+        <div class="field"><label for="customer-name">Họ tên *</label><input id="customer-name" name="name" type="text" autocomplete="name" aria-describedby="name-error" required><p class="field-error" id="name-error" aria-live="polite"></p></div>
+        <div class="field"><label for="customer-phone">Số điện thoại *</label><input id="customer-phone" name="phone" type="tel" inputmode="tel" autocomplete="tel" aria-describedby="phone-error" required><p class="field-error" id="phone-error" aria-live="polite"></p></div>
+        <div class="field"><label for="customer-address">Địa chỉ giao hàng *</label><textarea id="customer-address" name="address" autocomplete="street-address" aria-describedby="address-error" required></textarea><p class="field-error" id="address-error" aria-live="polite"></p></div>
         <div class="field"><label for="customer-note">Ghi chú</label><textarea id="customer-note" name="note" placeholder="Ví dụ: ít cay, giao trước 18 giờ..."></textarea></div>
+        <p class="checkout-note">Đơn hàng chỉ được xác nhận trên thiết bị này; cửa hàng chưa nhận được dữ liệu cho đến khi hệ thống máy chủ được kết nối.</p>
         <button class="btn submit-order" type="submit" disabled>XÁC NHẬN ĐẶT HÀNG</button>
       </form>
+      <section class="order-success" id="order-success" aria-live="polite" aria-labelledby="success-title">
+        <div class="success-mark" aria-hidden="true">✓</div>
+        <h2 id="success-title">Đặt hàng thành công!</h2>
+        <p>Cảm ơn <strong id="confirmed-customer"></strong>. Vui lòng lưu mã đơn để tiện tra cứu.</p>
+        <div class="order-code"><span>Mã đơn hàng</span><strong id="confirmed-code"></strong></div>
+        <ul class="confirmed-items" id="confirmed-items"></ul>
+        <div class="confirmed-total"><span>Tổng tiền</span><strong id="confirmed-total"></strong></div>
+        <p class="checkout-note">Đây là xác nhận trên trình duyệt. Cần kết nối máy chủ để cửa hàng nhận và quản lý đơn từ thiết bị khác.</p>
+        <button class="btn new-order" type="button">TIẾP TỤC MUA HÀNG</button>
+      </section>
     </aside>
   </div>
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
@@ -538,6 +567,8 @@
     const closeCartButton = document.querySelector(".close-cart");
     const checkoutForm = document.querySelector("#checkout-form");
     const submitOrder = document.querySelector(".submit-order");
+    const orderSuccess = document.querySelector("#order-success");
+    const newOrderButton = document.querySelector(".new-order");
     const toast = document.querySelector("#toast");
     const prices = {
       "Xúc xích nướng": 18000,
@@ -552,6 +583,41 @@
     let lastFocusedElement;
 
     const formatPrice = (value) => `${new Intl.NumberFormat("vi-VN").format(value)}đ`;
+
+    function createOrderCode() {
+      const date = new Date();
+      const day = [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("");
+      const uniquePart = typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID().replaceAll("-", "").slice(0, 8)
+        : `${date.getTime().toString(36)}${Math.random().toString(36).slice(2, 8)}`.slice(-8);
+      return `QT-${day}-${uniquePart.toUpperCase()}`;
+    }
+
+    function setFieldError(field, message) {
+      field.setAttribute("aria-invalid", String(Boolean(message)));
+      document.querySelector(`#${field.getAttribute("aria-describedby")}`).textContent = message;
+    }
+
+    function validateCheckout() {
+      const fields = {
+        name: checkoutForm.elements.name,
+        phone: checkoutForm.elements.phone,
+        address: checkoutForm.elements.address
+      };
+      const values = Object.fromEntries(Object.entries(fields).map(([key, field]) => [key, field.value.trim()]));
+      const digits = values.phone.replace(/\D/g, "");
+      const phoneHasValidCharacters = /^\+?[0-9 ().-]+$/.test(values.phone);
+      const errors = {
+        name: values.name ? "" : "Vui lòng nhập họ tên.",
+        phone: !values.phone ? "Vui lòng nhập số điện thoại." : !phoneHasValidCharacters || digits.length < 9 || digits.length > 11 ? "Số điện thoại không hợp lệ (cần 9 đến 11 chữ số)." : "",
+        address: values.address ? "" : "Vui lòng nhập địa chỉ giao hàng."
+      };
+
+      Object.entries(fields).forEach(([key, field]) => setFieldError(field, errors[key]));
+      const firstInvalid = Object.keys(errors).find((key) => errors[key]);
+      if (firstInvalid) fields[firstInvalid].focus();
+      return firstInvalid ? null : values;
+    }
 
     function showToast(message) {
       toast.textContent = message;
@@ -604,6 +670,11 @@
 
     document.querySelectorAll(".order-btn").forEach((button) => {
       button.addEventListener("click", () => {
+        if (orderSuccess.classList.contains("visible")) {
+          orderSuccess.classList.remove("visible");
+          checkoutForm.hidden = false;
+          document.querySelector(".cart-summary").hidden = false;
+        }
         const name = button.dataset.product;
         cart.set(name, (cart.get(name) || 0) + 1);
         renderCart();
@@ -640,13 +711,35 @@
 
     checkoutForm.addEventListener("submit", (event) => {
       event.preventDefault();
-      if (!cart.size || !checkoutForm.reportValidity()) return;
-      const customerName = new FormData(checkoutForm).get("name").trim();
+      if (!cart.size) return;
+      const customer = validateCheckout();
+      if (!customer) return;
+
+      const orderedItems = [...cart.entries()].map(([name, quantity]) => ({ name, quantity, subtotal: prices[name] * quantity }));
+      const total = orderedItems.reduce((sum, item) => sum + item.subtotal, 0);
+      document.querySelector("#confirmed-customer").textContent = customer.name;
+      document.querySelector("#confirmed-code").textContent = createOrderCode();
+      document.querySelector("#confirmed-items").innerHTML = orderedItems.map((item) =>
+        `<li class="confirmed-item"><span>${item.name} × ${item.quantity}</span><span>${formatPrice(item.subtotal)}</span></li>`
+      ).join("");
+      document.querySelector("#confirmed-total").textContent = formatPrice(total);
+
       cart.clear();
       checkoutForm.reset();
+      checkoutForm.querySelectorAll("[aria-invalid]").forEach((field) => setFieldError(field, ""));
       renderCart();
+      checkoutForm.hidden = true;
+      document.querySelector(".cart-summary").hidden = true;
+      orderSuccess.classList.add("visible");
+      orderSuccess.querySelector("h2").focus?.();
+    });
+
+    newOrderButton.addEventListener("click", () => {
+      orderSuccess.classList.remove("visible");
+      checkoutForm.hidden = false;
+      document.querySelector(".cart-summary").hidden = false;
       closeCart();
-      showToast(`Cảm ơn ${customerName}! Đơn hàng đã được ghi nhận.`);
+      document.querySelector("#san-pham").scrollIntoView({ behavior: "smooth" });
     });
 
     renderCart();
